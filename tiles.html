@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <link rel="stylesheet" href="css/base.css">
+    </link>
+    <link rel="stylesheet" href="css/navbar.css">
+    </link>
+    <link rel="stylesheet" href="css/customization.css">
+    </link>
+
+    <script src="js/base.js"></script>
+    <script src="js/navbar.js"></script>
+
+	<meta charset="utf-8">
+	<title>Tiles</title>
+	<style>
+		body { margin: 0; padding: 0; font-size: 0; }
+		canvas { width: 100%; height: 100%; }
+	</style>	
+</head>
+
+<body>
+    <div id="myNavbar" class="navbar">
+    </div>
+    <div style="padding-left:16px">
+    </div>
+</body>
+
+<div class="customization-container">
+</div>
+<div id="myCustomization" class="customization">
+    <h1 class="header">
+        Tiles
+    </h1>
+    <p class="description">
+        Procedurally generated tiles.
+    </p>
+        
+    <div class="slidecontainer">
+        <p class="values">Tile size: <span id="tileSizeDemo"></span></p>
+        <input type="range" min="0" max="10000" value="400" class="slider" id="tileSizeSlider">
+    </div>
+
+    <div class="slidecontainer">
+        <p class="values">Outline thickness: <span id="outlineThicknessDemo"></span></p>
+        <input type="range" min="0" max="10000" value="500" class="slider" id="outlineThicknessSlider">
+    </div>
+
+    <div class="slidecontainer">
+        <p class="values">Scroll speed: <span id="speedDemo"></span></p>
+        <input type="range" min="0" max="10000" value="500" class="slider" id="speedSlider">
+    </div>
+
+    <div class="color-container">
+        <h1 class="color-text">Colors:</h1>
+        <input type="color" id="tileColor" value="#f2eedf">
+        <input type="color" id="outlineColor" value="#041a38">
+    </div>
+</div>
+
+<img class="arrow" src="images/arrow.png"></img>
+
+
+<body>
+	<div id="container"></div>
+
+	<script src="three.min.js"></script>
+
+	<script id="vertexShader" type="x-shader/x-vertex">
+        uniform float time;
+        uniform vec2 resolution;
+        void main()	{
+            gl_Position = vec4( position, 1.0 );
+        }
+    </script>
+
+    <script id="fragmentShader" type="x-shader/x-fragment">
+        uniform float time;
+        uniform vec2 resolution;
+
+        uniform vec3 tileColor;
+        uniform vec3 outlineColor;
+
+        uniform float tileSize;
+        uniform float outlineThickness;
+
+        void main()	{
+            float x = mod(time + gl_FragCoord.x, outlineThickness + tileSize) < tileSize ? 1.0 : 0.0;
+            float y = mod(time + gl_FragCoord.y, outlineThickness + tileSize) < tileSize ? 1.0 : 0.0;
+
+			vec3 monochrome = vec3(min(x, y));
+			vec3 col = monochrome.x < 0.5 ? outlineColor : tileColor;
+			
+            gl_FragColor = vec4(col, 1.0);
+        }
+    </script>
+    <script>
+        var container;
+        var camera, scene, renderer;
+        var uniforms, material, mesh;
+        var mouseX = 0, mouseY = 0,
+            lat = 0, lon = 0, phy = 0, theta = 0;
+
+        var windowHalfX = window.innerWidth / 2;
+        var windowHalfY = window.innerHeight / 2;
+
+        var heightOffset = -48;
+
+        var tileSizeSlider = document.getElementById("tileSizeSlider");
+        var tileSizeOutput = document.getElementById("tileSizeDemo");
+        tileSizeOutput.innerHTML = tileSizeSlider.value / 4.0;
+
+        tileSizeSlider.oninput = function() {
+            tileSizeOutput.innerHTML = this.value / 4.0;
+        }
+
+        var outlineThicknessSlider = document.getElementById("outlineThicknessSlider");
+        var outlineThicknessOutput = document.getElementById("outlineThicknessDemo");
+        outlineThicknessOutput.innerHTML = outlineThicknessSlider.value / 100.0;
+
+        outlineThicknessSlider.oninput = function() {
+            outlineThicknessOutput.innerHTML = this.value / 100.0;
+        }
+
+        var speedSlider = document.getElementById("speedSlider");
+        var speedOutput = document.getElementById("speedDemo");
+        speedOutput.innerHTML = speedSlider.value / 10.0;
+
+        speedSlider.oninput = function() {
+            speedOutput.innerHTML = this.value / 10.0;
+        }
+
+
+        // https://css-tricks.com/converting-color-spaces-in-javascript/
+        function hexToRGB(h) {
+        let r = 0, g = 0, b = 0;
+
+        // 3 digits
+        if (h.length == 4) {
+            r = "0x" + h[1] + h[1];
+            g = "0x" + h[2] + h[2];
+            b = "0x" + h[3] + h[3];
+
+        // 6 digits
+        } else if (h.length == 7) {
+            r = "0x" + h[1] + h[2];
+            g = "0x" + h[3] + h[4];
+            b = "0x" + h[5] + h[6];
+        }
+  
+        return new THREE.Vector3(r / 255, g / 255, b / 255);
+        }
+
+        var tileColorPicker = document.getElementById("tileColor");
+        var tileColor = hexToRGB(tileColorPicker.value);
+        tileColorPicker.oninput = function() {
+            tileColor = hexToRGB(tileColorPicker.value);
+        }
+
+        var outlineColorPicker = document.getElementById("outlineColor");
+        var outlineColor = hexToRGB(outlineColorPicker.value);
+        outlineColorPicker.oninput = function() {
+            outlineColor = hexToRGB(outlineColorPicker.value);
+        }
+
+        init();
+        var startTime = Date.now();
+        animate();
+
+        function init() {
+            container = document.getElementById('container');
+
+            camera = new THREE.Camera();
+            camera.position.z = 1;
+            scene = new THREE.Scene();
+
+            uniforms = {
+                time: { type: "f", value: 1.0 },
+                resolution: { type: "v2", value: new THREE.Vector2() },
+                tileSize: { type: "f", value: 0.0 },
+                outlineThickness: { type: "f", value: 0.0 },
+                tileColor: { type: "v3", value: new THREE.Vector3(0.0, 0.0, 0.0) },
+                outlineColor: { type: "v3", value: new THREE.Vector3(0.0, 0.0, 0.0) }
+            };
+
+            material = new THREE.ShaderMaterial({
+                uniforms: uniforms,
+                vertexShader: document.getElementById('vertexShader').textContent,
+                fragmentShader: document.getElementById('fragmentShader').textContent
+            });
+
+            mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
+            scene.add(mesh);
+
+            renderer = new THREE.WebGLRenderer();
+            renderer.setPixelRatio(window.devicePixelRatio ? window.devicePixelRatio : 1);
+            container.appendChild(renderer.domElement);
+
+            uniforms.resolution.value.x = window.innerWidth;
+            uniforms.resolution.value.y = window.innerHeight + heightOffset;
+            renderer.setSize(window.innerWidth, window.innerHeight + heightOffset);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            render();
+        }
+
+        function render() {
+            var elapsedMilliseconds = Date.now() - startTime;
+            var elapsedSeconds = elapsedMilliseconds / 1000.0;
+            uniforms.time.value = speedSlider.value / 10.0 * elapsedSeconds;
+            uniforms.tileSize.value = tileSizeSlider.value / 4.0;
+            uniforms.outlineThickness.value = outlineThicknessSlider.value / 100.0;
+
+            uniforms.tileColor.value = tileColor;
+            uniforms.outlineColor.value = outlineColor;
+
+            renderer.render(scene, camera);
+        }
+  </script>
+</body>
+</html>

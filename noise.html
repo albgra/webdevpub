@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <link rel="stylesheet" href="css/base.css">
+    </link>
+    <link rel="stylesheet" href="css/navbar.css">
+    </link>
+    <link rel="stylesheet" href="css/customization.css">
+    </link>
+
+    <script src="js/base.js"></script>
+    <script src="js/navbar.js"></script>
+
+	<meta charset="utf-8">
+	<title>Noise</title>
+	<style>
+		body { margin: 0; padding: 0; font-size: 0; }
+		canvas { width: 100%; height: 100%; }
+	</style>
+</head>
+
+<body>
+    <div id="myNavbar" class="navbar">
+    </div>
+    <div style="padding-left:16px">
+    </div>
+</body>
+
+<div class="customization-container">
+</div>
+<div id="myCustomization" class="customization">
+    <h1 class="header">
+        Noise
+    </h1>
+    <p class="description">
+        A combination of <a href="https://en.wikipedia.org/wiki/Voronoi_diagram">voronoi</a> and <a href="https://en.wikipedia.org/wiki/Perlin_noise">perlin noise</a>.<br><br>
+        &nbsp&nbsp • Voronoi<br>
+        &nbsp&nbsp&nbsp&nbsp&nbsp&nbsp Jitter = 1, Blur = 0<br>
+        &nbsp&nbsp • Perlin noise<br>
+        &nbsp&nbsp&nbsp&nbsp&nbsp&nbsp Jitter = 0, Blur = 1
+    </p>
+        
+    <div class="slidecontainer">
+        <p class="values">Size: <span id="amountDemo"></span></p>
+        <input type="range" min="0" max="10000" value="5000" class="slider" id="amountSlider">
+    </div>
+
+    <div class="slidecontainer">
+        <p class="values">Jitter: <span id="jitterDemo"></span></p>
+        <input type="range" min="0" max="10000" value="0" class="slider" id="jitterSlider">
+    </div>
+
+    <div class="slidecontainer">
+        <p class="values">Blur: <span id="blurDemo"></span></p>
+        <input type="range" min="0" max="10000" value="0" class="slider" id="blurSlider">
+    </div>
+
+    <div class="slidecontainer">
+        <p class="values">Scroll speed: <span id="speedDemo"></span></p>
+        <input type="range" min="0" max="10000" value="1000" class="slider" id="speedSlider">
+    </div>
+
+    <div class="color-container">
+        <h1 class="color-text">Colors:</h1>
+        <input type="color" id="firstColor" value="#ffffff">
+        <input type="color" id="secondColor" value="#000000">
+    </div>
+</div>
+
+<img class="arrow" src="images/arrow.png"></img>
+
+
+<body>
+	<div id="container"></div>
+
+	<script src="three.min.js"></script>
+
+	<script id="vertexShader" type="x-shader/x-vertex">
+        uniform float time;
+        uniform vec2 resolution;
+        varying vec2 vUv;
+        void main()	{
+            vUv = uv + time;
+            gl_Position = vec4( position, 1.0 );
+        }
+    </script>
+
+    <script id="fragmentShader" type="x-shader/x-fragment">
+        // http://iquilezles.org/www/articles/voronoise/voronoise.html
+
+        // ell noise    jitter=0,blur=0
+        // voronoi      jitter=1,blur=0
+        // perlin noise jitter=0,blur=1
+        // voronoise    jitter=1,blur=1
+
+        varying vec2 vUv;
+        
+        uniform vec3 firstColor;
+        uniform vec3 secondColor;
+
+        uniform float amount;
+        uniform float jitter;
+        uniform float blur;
+        uniform float time;
+        vec3 hash3( vec2 p )
+        {
+            vec3 q = vec3( dot(p,vec2(127.1,311.7)),
+                   dot(p,vec2(269.5,183.3)),
+                   dot(p,vec2(419.2,371.9)) );
+          return fract(sin(q)*43758.5453);
+        }
+        
+        float iqnoise( in vec2 x, float u, float v )
+        {
+            vec2 p = floor(x);
+            vec2 f = fract(x);
+        
+          float k = 1.0+63.0*pow(1.0-v,4.0);
+        
+          float va = 0.0;
+          float wt = 0.0;
+            for( int j=-2; j<=2; j++ )
+            for( int i=-2; i<=2; i++ )
+            {
+                vec2 g = vec2( float(i),float(j) );
+            vec3 o = hash3( p + g )*vec3(u,u,1.0);
+            vec2 r = g - f + o.xy;
+            float d = dot(r,r);
+            float ww = pow( 1.0-smoothstep(0.0,1.414,sqrt(d)), k );
+            va += o.z*ww;
+            wt += ww;
+            }
+        
+            return va/wt;
+        }
+        
+        void main(void)
+        {
+          vec2 p = 0.5 - 0.5*sin( vUv );
+        
+          p = p*p*(3.0-2.0*p);
+          p = p*p*(3.0-2.0*p);
+          p = p*p*(3.0-2.0*p);
+        
+          float f = iqnoise( amount*vUv, jitter, blur );
+          
+          // Blend colors using linear interpolation
+          // https://gamedev.stackexchange.com/questions/18615/how-do-i-linearly-interpolate-between-two-vectors
+          vec3 col = f * firstColor + (1.0 - f) * secondColor;
+
+          gl_FragColor = vec4(col, 1.0 );
+        }
+    </script>
+    <script>
+        var container;
+        var camera, scene, renderer;
+        var uniforms, material, mesh;
+        var mouseX = 0, mouseY = 0,
+            lat = 0, lon = 0, phy = 0, theta = 0;
+
+        var windowHalfX = window.innerWidth / 2;
+        var windowHalfY = window.innerHeight / 2;
+
+        var heightOffset = -48;
+
+        var amountSlider = document.getElementById("amountSlider");
+        var amountOutput = document.getElementById("amountDemo");
+        amountOutput.innerHTML = amountSlider.value / 50.0;
+
+        amountSlider.oninput = function() {
+            amountOutput.innerHTML = this.value / 50.0;
+        }
+
+        var jitterSlider = document.getElementById("jitterSlider");
+        var jitterOutput = document.getElementById("jitterDemo");
+        jitterOutput.innerHTML = jitterSlider.value / 10000.0;
+
+        jitterSlider.oninput = function() {
+            jitterOutput.innerHTML = this.value / 10000.0;
+        }
+
+        var blurSlider = document.getElementById("blurSlider");
+        var blurOutput = document.getElementById("blurDemo");
+        blurOutput.innerHTML = blurSlider.value / 10000.0;
+
+        blurSlider.oninput = function() {
+            blurOutput.innerHTML = this.value / 10000.0;
+        }
+
+        var speedSlider = document.getElementById("speedSlider");
+        var speedOutput = document.getElementById("speedDemo");
+        speedOutput.innerHTML = speedSlider.value / 10000.0;
+
+        speedSlider.oninput = function() {
+            speedOutput.innerHTML = this.value / 10000.0;
+        }
+
+        // https://css-tricks.com/converting-color-spaces-in-javascript/
+        function hexToRGB(h) {
+        let r = 0, g = 0, b = 0;
+
+        // 3 digits
+        if (h.length == 4) {
+            r = "0x" + h[1] + h[1];
+            g = "0x" + h[2] + h[2];
+            b = "0x" + h[3] + h[3];
+
+        // 6 digits
+        } else if (h.length == 7) {
+            r = "0x" + h[1] + h[2];
+            g = "0x" + h[3] + h[4];
+            b = "0x" + h[5] + h[6];
+        }
+  
+        return new THREE.Vector3(r / 255, g / 255, b / 255);
+        }
+
+        var firstColorPicker = document.getElementById("firstColor");
+        var firstColor = hexToRGB(firstColorPicker.value);
+        firstColorPicker.oninput = function() {
+            firstColor = hexToRGB(firstColorPicker.value);
+        }
+
+        var secondColorPicker = document.getElementById("secondColor");
+        var secondColor = hexToRGB(secondColorPicker.value);
+        secondColorPicker.oninput = function() {
+            secondColor = hexToRGB(secondColorPicker.value);
+        }
+
+        init();
+        var startTime = Date.now();
+        animate();
+
+        function init() {
+            container = document.getElementById('container');
+
+            camera = new THREE.Camera();
+            camera.position.z = 1;
+            scene = new THREE.Scene();
+
+            uniforms = {
+                time: { type: "f", value: 1.0 },
+                resolution: { type: "v2", value: new THREE.Vector2() },
+                amount: { type: "f", value: 1.0 },
+                jitter: { type: "f", value: 0.0 },
+                blur: { type: "f", value: 0.0 },
+                firstColor: { type: "v3", value: new THREE.Vector3(1.0, 1.0, 1.0) },
+                secondColor: { type: "v3", value: new THREE.Vector3(0.0, 0.0, 0.0) }
+            };
+
+            material = new THREE.ShaderMaterial({
+                uniforms: uniforms,
+                vertexShader: document.getElementById('vertexShader').textContent,
+                fragmentShader: document.getElementById('fragmentShader').textContent
+            });
+            
+            var value = Math.min(window.innerWidth, window.innerHeight + heightOffset);
+            mesh = new THREE.Mesh(new THREE.PlaneGeometry((window.innerHeight + heightOffset) / value * 2.0, window.innerWidth / value * 2.0), material);
+            scene.add(mesh);
+
+            renderer = new THREE.WebGLRenderer();
+            renderer.setPixelRatio(window.devicePixelRatio ? window.devicePixelRatio : 1);
+            container.appendChild(renderer.domElement);
+
+            uniforms.resolution.value.x = window.innerWidth;
+            uniforms.resolution.value.y = window.innerHeight + heightOffset;
+
+            renderer.setSize(window.innerWidth, window.innerHeight + heightOffset);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            render();
+        }
+
+        function render() {
+            var elapsedMilliseconds = Date.now() - startTime;
+            var elapsedSeconds = elapsedMilliseconds / 1000.;
+            uniforms.time.value = speedSlider.value / 10000.0 * elapsedSeconds;
+            uniforms.amount.value = amountSlider.value / 50.0;
+            uniforms.jitter.value = jitterSlider.value / 10000.0;
+            uniforms.blur.value = blurSlider.value / 10000.0;
+            
+            uniforms.firstColor.value = firstColor;
+            uniforms.secondColor.value = secondColor;
+
+            renderer.render(scene, camera);
+        }
+  </script>
+</body>
+</html>

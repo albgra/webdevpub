@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<link rel="stylesheet" href="css/base.css">
+		</link>
+		<link rel="stylesheet" href="css/navbar.css">
+		</link>
+		<link rel="stylesheet" href="css/customization.css">
+		</link>
+	
+		<script src="js/base.js"></script>
+		<script src="js/navbar.js"></script>
+	
+		<meta charset="utf-8">
+		<title>Bubbles</title>
+		<style>
+			body { margin: 0; padding: 0; font-size: 0; }
+			canvas { width: 100%; height: 100%; }
+		</style>	
+	</head>
+
+<body>
+    <div id="myNavbar" class="navbar">
+    </div>
+    <div style="padding-left:16px">
+    </div>
+</body>
+
+<div class="customization-container">
+</div>
+<div id="myCustomization" class="customization">
+    <h1 class="header">
+        Bubbles
+    </h1>
+    <p class="description">
+        Procedurally generated bubbles bouncing around.
+    </p>
+        
+	<div class="slidecontainer">
+        <p class="values">Number of bubbles: <span id="numberOfBubblesDemo"></span></p>
+        <input type="range" min="0" max="1000" value="20" class="slider" id="numberOfBubblesSlider">
+    </div>
+
+    <div class="slidecontainer">
+        <p class="values">Bubble radius: <span id="radiusDemo"></span></p>
+        <input type="range" min="0" max="10000" value="1000" class="slider" id="radiusSlider">
+    </div>
+
+	<div class="slidecontainer">
+        <p class="values">Outline thickness: <span id="thicknessDemo"></span></p>
+        <input type="range" min="0" max="10000" value="500" class="slider" id="thicknessSlider">
+    </div>
+
+    <div class="slidecontainer">
+        <p class="values">Bubble speed: <span id="speedDemo"></span></p>
+        <input type="range" min="0" max="10000" value="200" class="slider" id="speedSlider">
+    </div>
+
+    <div class="color-container">
+        <h1 class="color-text">Colors:</h1>
+        <input type="color" id="bubbleColor" value="#ffffff">
+        <input type="color" id="backgroundColor" value="#5edfff">
+    </div>
+</div>
+
+<img class="arrow" src="images/arrow.png"></img>
+
+
+<body>
+	<div id="container"></div>
+
+	<script src="three.min.js"></script>
+
+	<script id="vertexShader" type="x-shader/x-vertex">
+        uniform float time;
+        uniform vec2 resolution;
+        void main()	{
+            gl_Position = vec4( position, 1.0 );
+        }
+    </script>
+
+    <script id="fragmentShader" type="x-shader/x-fragment">
+        uniform float time;
+        uniform vec2 resolution;
+
+		uniform float radius;
+		uniform int numberOfBubbles;
+		uniform vec2 bubblePositions[1000]; // array size needs to be hardcoded
+
+		uniform vec3 bubbleColor;
+		uniform vec3 backgroundColor;
+
+		uniform float thickness;
+
+        void main()	{
+			// https://stackoverflow.com/questions/481144/equation-for-testing-if-a-point-is-inside-a-circle
+			vec3 col = backgroundColor;
+			for (int i = 0; i < numberOfBubbles; i++) {
+				if ((pow(gl_FragCoord.x - bubblePositions[i].x, 2.0) + pow(gl_FragCoord.y - bubblePositions[i].y, 2.0)) < radius * radius) {
+					if ((pow(gl_FragCoord.x - bubblePositions[i].x, 2.0) + pow(gl_FragCoord.y - bubblePositions[i].y, 2.0)) > radius * radius * (1.0 - thickness)) {
+						col = bubbleColor;
+						break;
+					}
+				}
+			} 
+            gl_FragColor = vec4(col, 1.0);
+        }
+    </script>
+    <script>
+        var container;
+        var camera, scene, renderer;
+        var uniforms, material, mesh;
+        var mouseX = 0, mouseY = 0,
+        lat = 0, lon = 0, phy = 0, theta = 0;
+
+        var windowHalfX = window.innerWidth / 2;
+        var windowHalfY = window.innerHeight / 2;
+
+		var heightOffset = -48;
+
+		var radiusSlider = document.getElementById("radiusSlider");
+        var radiusOutput = document.getElementById("radiusDemo");
+        radiusOutput.innerHTML = radiusSlider.value / 10.0;
+
+        radiusSlider.oninput = function() {
+            radiusOutput.innerHTML = this.value / 10.0;
+        }
+
+        var numberOfBubblesSlider = document.getElementById("numberOfBubblesSlider");
+        var numberOfBubblesOutput = document.getElementById("numberOfBubblesDemo");
+        numberOfBubblesOutput.innerHTML = numberOfBubblesSlider.value;
+
+        numberOfBubblesSlider.oninput = function() {
+            numberOfBubblesOutput.innerHTML = this.value;
+        }
+
+		var lastNumberOfBubbles = 0;
+
+        var speedSlider = document.getElementById("speedSlider");
+        var speedOutput = document.getElementById("speedDemo");
+        speedOutput.innerHTML = speedSlider.value / 200.0;
+		var speed = speedSlider.value / 200.0;
+
+        speedSlider.oninput = function() {
+            speedOutput.innerHTML = this.value / 200.0;
+			speed = speedSlider.value / 200.0;
+        }
+
+		var thicknessSlider = document.getElementById("thicknessSlider");
+        var thicknessOutput = document.getElementById("thicknessDemo");
+        thicknessOutput.innerHTML = thicknessSlider.value / 10000.0;
+
+        thicknessSlider.oninput = function() {
+            thicknessOutput.innerHTML = this.value / 10000.0;
+        }
+
+
+        // https://css-tricks.com/converting-color-spaces-in-javascript/
+        function hexToRGB(h) {
+        let r = 0, g = 0, b = 0;
+
+        // 3 digits
+        if (h.length == 4) {
+            r = "0x" + h[1] + h[1];
+            g = "0x" + h[2] + h[2];
+            b = "0x" + h[3] + h[3];
+
+        // 6 digits
+        } else if (h.length == 7) {
+            r = "0x" + h[1] + h[2];
+            g = "0x" + h[3] + h[4];
+            b = "0x" + h[5] + h[6];
+        }
+  
+        return new THREE.Vector3(r / 255, g / 255, b / 255);
+        }
+
+        var bubbleColorPicker = document.getElementById("bubbleColor");
+        var bubbleColor = hexToRGB(bubbleColorPicker.value);
+        bubbleColorPicker.oninput = function() {
+            bubbleColor = hexToRGB(bubbleColorPicker.value);
+        }
+
+        var backgroundColorPicker = document.getElementById("backgroundColor");
+        var backgroundColor = hexToRGB(backgroundColorPicker.value);
+        backgroundColorPicker.oninput = function() {
+            backgroundColor = hexToRGB(backgroundColorPicker.value);
+        }
+
+        init();
+        var startTime = Date.now();
+        animate();
+
+        function init() {
+            container = document.getElementById('container');
+
+            camera = new THREE.Camera();
+            camera.position.z = 1;
+            scene = new THREE.Scene();
+
+            uniforms = {
+                time: { type: "f", value: 1.0 },
+                resolution: { type: "v2", value: new THREE.Vector2() },
+				radius: { type: "f", value: 100.0 },
+				numberOfBubbles: { type: "int", value: 10 },
+				bubblePositions: { value: [] },
+				bubbleVelocities: { value: [] },
+				radius: { type: "f", value: 10.0 },
+				thickness: { type: "f", value: 1.0 },
+				bubbleColor: { type: "v3", value: new THREE.Vector3(1.0, 1.0, 1.0) },
+				backgroundColor: { type: "v3", value: new THREE.Vector3(0.0, 0.0, 0.0) }
+            };
+
+			material = new THREE.ShaderMaterial({
+                uniforms: uniforms,
+                vertexShader: document.getElementById('vertexShader').textContent,
+                fragmentShader: document.getElementById('fragmentShader').textContent
+            });
+
+            mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
+            scene.add(mesh);
+
+            renderer = new THREE.WebGLRenderer();
+            renderer.setPixelRatio(window.devicePixelRatio ? window.devicePixelRatio : 1);
+            container.appendChild(renderer.domElement);
+
+            uniforms.resolution.value.x = window.innerWidth;
+            uniforms.resolution.value.y = window.innerHeight + heightOffset;
+            renderer.setSize(window.innerWidth, window.innerHeight + heightOffset);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+			uniforms.numberOfBubbles.value = numberOfBubblesSlider.value;
+
+			// Regulate bubble population
+			var bubblesToCreate = uniforms.numberOfBubbles.value - lastNumberOfBubbles;
+
+			if (lastNumberOfBubbles == 0) {
+				bubblesToCreate = 1000;
+			}
+
+			// Create bubbles
+			for (var i = 0; i < bubblesToCreate; i++) {
+				var radius = uniforms.radius.value;
+				uniforms.bubblePositions.value.push(new THREE.Vector2(Math.random() * (window.innerWidth - (radius * 2.0)) + radius, Math.random() * (window.innerHeight + heightOffset - (radius * 2.0)) + radius));
+				vector = new THREE.Vector3((Math.random() - 0.5) * 2.0, (Math.random() - 0.5) * 2.0, 0.0).normalize();
+				uniforms.bubbleVelocities.value.push(new THREE.Vector2(vector.x, vector.y));
+			}
+
+			// pop() bubbles ;)
+			for (var j = 0; j < -bubblesToCreate; j++) {
+				var radius = uniforms.radius.value;
+				uniforms.bubblePositions.value.pop();
+				uniforms.bubbleVelocities.value.pop();
+			}
+			
+			lastNumberOfBubbles = uniforms.numberOfBubbles.value;
+
+			// Create/remove dummy bubbles because array needs to be a constant size
+			while (uniforms.bubblePositions.value.length != 1000) {
+				if (uniforms.bubblePositions.value.length > 1000) {
+					uniforms.bubblePositions.value.pop();
+				}
+				
+				if (uniforms.bubblePositions.value.length < 1000)
+				{
+					uniforms.bubblePositions.value.push(new THREE.Vector2(-100000.0, -100000.0));
+				}
+			}
+
+			// Move Bubbles
+			for (var i = 0; i < uniforms.numberOfBubbles.value; i++) {
+				uniforms.bubblePositions.value[i].x += uniforms.bubbleVelocities.value[i].x * speed;
+				uniforms.bubblePositions.value[i].y += uniforms.bubbleVelocities.value[i].y * speed;
+
+				// Check for collision with wall
+				var radius = uniforms.radius.value;
+				if (uniforms.bubblePositions.value[i].x - radius < 0.0) {
+					uniforms.bubbleVelocities.value[i].x *= -1.0;
+					uniforms.bubblePositions.value[i].x = 0.0 + radius;
+				}
+				if (uniforms.bubblePositions.value[i].x + radius > window.innerWidth) {
+					uniforms.bubbleVelocities.value[i].x *= -1.0;
+					uniforms.bubblePositions.value[i].x = window.innerWidth - radius;
+				}
+
+				if (uniforms.bubblePositions.value[i].y - radius < 0.0) {
+					uniforms.bubbleVelocities.value[i].y *= -1.0;
+					uniforms.bubblePositions.value[i].y = 0.0 + radius;
+				}
+				if (uniforms.bubblePositions.value[i].y + radius > window.innerHeight) {
+					uniforms.bubbleVelocities.value[i].y *= -1.0;
+					uniforms.bubblePositions.value[i].y = window.innerHeight - radius;
+				}
+
+				// Check for collision with other bubbles
+				for (var j = 0; j < uniforms.numberOfBubbles.value; j++) {
+					if (j == i) {
+						// Skip self
+						continue;
+					}
+
+					var dist = uniforms.bubblePositions.value[i].distanceTo(uniforms.bubblePositions.value[j]);
+					if (dist < radius * 2.0) {
+						var normal = new THREE.Vector2(uniforms.bubblePositions.value[i].x - uniforms.bubblePositions.value[j].x, uniforms.bubblePositions.value[i].y - uniforms.bubblePositions.value[j].y);
+						normal.normalize();
+						uniforms.bubbleVelocities.value[i] = normal;
+					}
+				}
+			}
+
+			render();
+        }
+
+        function render() {
+            var elapsedMilliseconds = Date.now() - startTime;
+            var elapsedSeconds = elapsedMilliseconds / 1000.;
+            uniforms.time.value = 60.0 * elapsedSeconds;
+			uniforms.radius.value = radiusSlider.value / 10.0;
+			uniforms.thickness.value = thicknessSlider.value / 10000.0;
+			uniforms.bubbleColor.value = bubbleColor;
+			uniforms.backgroundColor.value = backgroundColor;
+            renderer.render(scene, camera);
+        }
+  </script>
+</body>
+</html>
